@@ -54,6 +54,7 @@ export default async function AvailabilityPage() {
             bufferBeforeMinutes: 0,
             bufferAfterMinutes: 15,
             minNoticeMinutes: 120,
+            changeNoticeHours: 24,
           }
         }
       />

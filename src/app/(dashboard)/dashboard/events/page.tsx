@@ -3,8 +3,8 @@ import { eq } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { eventType, user } from "@/db/schema";
-import { planLimits } from "@/lib/plans";
-import { EventTypesManager } from "@/components/dashboard/event-types-manager";
+import { appUrl } from "@/lib/stripe";
+import { EventsList } from "@/components/dashboard/events-list";
 
 export default async function EventsPage() {
   const session = await getSession();
@@ -19,27 +19,25 @@ export default async function EventsPage() {
   const events = await db
     .select()
     .from(eventType)
-    .where(eq(eventType.hostId, u.id));
+    .where(eq(eventType.hostId, u.id))
+    .orderBy(eventType.createdAt);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold text-teal-950">
-          Event types
+          Events
         </h1>
         <p className="text-muted-foreground">
-          {planLimits(u.plan).label} plan:{" "}
-          {Number.isFinite(planLimits(u.plan).maxEventTypes)
-            ? `up to ${planLimits(u.plan).maxEventTypes} event type(s)`
-            : "unlimited event types"}
-          . Paid pricing requires Pro+ and Stripe Connect.
+          Each event has its own booking link. Card payments need Stripe
+          Connect (under Billing); cash doesn&apos;t.
         </p>
       </div>
-      <EventTypesManager
+      <EventsList
         events={events}
         plan={u.plan}
-        connectOnboarded={u.stripeConnectOnboarded}
         username={u.username}
+        baseUrl={appUrl()}
       />
     </div>
   );

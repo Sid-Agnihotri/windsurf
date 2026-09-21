@@ -1,6 +1,6 @@
 # Windsurf
 
-Appointment scheduling for solo service businesses. Hosts manage event types and availability; guests book (and optionally pay) via a public link.
+Appointment scheduling for solo service businesses. Hosts manage events and availability; guests book (and optionally pay) via a public link.
 
 ## Stack
 
@@ -28,7 +28,7 @@ App: [http://127.0.0.1:43123](http://127.0.0.1:43123)
 
 ### Local database (default)
 
-Without Neon, the app uses **SQLite** at `./data/windsurf.db` (`SQLITE_PATH`). No Docker or Postgres required for local development.
+Without Neon, the app uses **SQLite** at `./data/windsurf.db` (`SQLITE_PATH`). No Docker or Postgres required — this is what the cloud agent uses.
 
 ### Neon / Postgres
 
@@ -55,7 +55,7 @@ See `.env.example`:
 ## What works without Stripe / Resend
 
 - Sign up / sign in, Free plan defaults
-- Event types, availability, bookings CRUD
+- Events, availability, bookings CRUD
 - Public pages `/{username}` and `/{username}/{event-slug}`
 - **Free bookings** confirm immediately; emails are logged
 - **Plan upgrade** and **Connect onboarding** use `/api/stripe/mock-complete` when keys are missing
@@ -63,13 +63,53 @@ See `.env.example`:
 
 With real Stripe keys + price IDs + webhook secret, Checkout and `POST /api/stripe/webhook` run for real.
 
+## Demo accounts (dev only)
+
+```bash
+npm run db:migrate
+npm run db:seed      # safe to re-run; it also resets each account's tier
+```
+
+| Email | Password | Username | Plan | Role |
+| --- | --- | --- | --- | --- |
+| `admin@windsurf.test` | `password` | `admin` | Expert | admin |
+| `free@windsurf.test` | `password` | `demo_free` | Free | user |
+| `pro@windsurf.test` | `password` | `demo_pro` | Pro | user |
+| `expert@windsurf.test` | `password` | `demo_expert` | Expert | user |
+
+The three tier accounts behave like ordinary customers, and they start bare: default Mon–Fri 9–5 availability, no events, bookings or Stripe Connect. Sign in as the **admin** and open **Admin** in the dashboard nav (`/dashboard/admin`) to see every account's usage against its limits and to switch any account's tier without going through Stripe. Everyone else gets a 404 there. `db:seed` refuses to run when `NODE_ENV=production`.
+
+## How payments work
+
+Each event (e.g. "Dog walking", "Car washing") has its own public booking link and its own pricing, in CAD:
+
+- **Free**: no payment.
+- **Paid**: full price. The guest pays by card (Stripe) or, if the host turned on **Accept cash**, chooses to pay in person.
+- **Deposit**: a deposit is the partial payment, charged by card at booking. The rest of the full price is due in person. If cash is accepted the guest can instead pay everything in person.
+- **Tips**: optional, card only.
+
+Cash bookings confirm immediately and show a balance due on the host's Bookings page, with a **Mark paid** button once the money is received. Stripe Connect is only needed for card payments and tips, so a cash-only host can skip it.
+
+## Guest self-service
+
+Every booking made from now on gets a secret manage link (`/booking/manage/{token}`). It is in the guest's confirmation email and on the "You're booked" screen. From it a guest can:
+
+- **Cancel**, or
+- **Reschedule** to another open time for the same event (confirmed bookings only; a booking still awaiting payment can only be cancelled).
+
+Hosts set how late guests can do this under **Availability → "Guests can change bookings until (hours before)"** (default 24, `0` = until the appointment starts). Inside that window the page asks the guest to contact the host. Both sides get an email whenever a booking is cancelled or moved, and guests are also emailed when the *host* cancels.
+
+Hosts can also **Reschedule** any upcoming confirmed booking from the Bookings page (the guest cutoff doesn't apply to the host), and the guest is emailed the new time.
+
+Refunds are manual: cancelling never refunds money. The host's email says how much the guest paid, and the guest is told refunds are handled by the host. Bookings created before this feature have no link.
+
 ## Plan limits (enforced)
 
 | | Free | Pro | Expert |
 | --- | --- | --- | --- |
-| Event types | 1 | 5 | Unlimited |
-| Bookings / month | 10 | 100 | Unlimited |
-| Paid / tips / deposits | No | Yes | Yes |
+| Events | 3 | Unlimited | Unlimited |
+| Bookings / month | 5 | 100 | Unlimited |
+| Paid / tips / deposits (CAD, needs Stripe Connect) | Yes | Yes | Yes |
 | Custom branding | No | No | Yes |
 
 ## Out of scope (v1)

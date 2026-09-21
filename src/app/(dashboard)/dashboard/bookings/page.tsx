@@ -3,8 +3,11 @@ import { desc, eq } from "drizzle-orm";
 import { formatInTimeZone } from "date-fns-tz";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
+import { balanceDueCents, formatMoney } from "@/lib/money";
 import { booking, eventType, user } from "@/db/schema";
 import { CancelBookingButton } from "@/components/dashboard/cancel-booking-button";
+import { MarkPaidButton } from "@/components/dashboard/mark-paid-button";
+import { RescheduleBookingButton } from "@/components/dashboard/reschedule-booking-button";
 import {
   Card,
   CardContent,
@@ -12,7 +15,10 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
+import {
+  BookingStatusBadge,
+  PaymentBadge,
+} from "@/components/dashboard/status-badge";
 
 export default async function BookingsPage() {
   const session = await getSession();
@@ -34,6 +40,7 @@ export default async function BookingsPage() {
       endAt: booking.endAt,
       status: booking.status,
       amountPaidCents: booking.amountPaidCents,
+      totalCents: booking.totalCents,
       tipCents: booking.tipCents,
       title: eventType.title,
     })
@@ -94,6 +101,7 @@ function BookingList({
     startAt: Date;
     status: string;
     amountPaidCents: number;
+    totalCents: number;
     tipCents: number;
     title: string;
   }[];
@@ -133,21 +141,53 @@ function BookingList({
                       “{b.guestNote}”
                     </p>
                   )}
-                  {(b.amountPaidCents > 0 || b.tipCents > 0) && (
+                  {b.status === "pending_payment" ? (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      Paid ${(b.amountPaidCents / 100).toFixed(2)}
-                      {b.tipCents > 0
-                        ? ` + tip $${(b.tipCents / 100).toFixed(2)}`
-                        : ""}
+                      Awaiting online payment
                     </p>
+                  ) : (
+                    (b.amountPaidCents > 0 || b.totalCents > 0) && (
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Paid {formatMoney(b.amountPaidCents)}
+                        {b.tipCents > 0
+                          ? ` (incl. tip ${formatMoney(b.tipCents)})`
+                          : ""}
+                        {b.status !== "cancelled" && balanceDueCents(b) > 0
+                          ? ` · Balance due in person ${formatMoney(balanceDueCents(b))}`
+                          : ""}
+                      </p>
+                    )
                   )}
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary" className="capitalize">
-                    {b.status.replace("_", " ")}
-                  </Badge>
+                  <PaymentBadge {...b} />
+                  <BookingStatusBadge status={b.status} />
+                  {(b.status === "confirmed" || b.status === "completed") &&
+                    balanceDueCents(b) > 0 && <MarkPaidButton id={b.id} />}
+                  {b.status === "confirmed" && b.startAt >= new Date() && (
+                    <RescheduleBookingButton
+                      id={b.id}
+                      guestName={b.guestName}
+                      eventTitle={b.title}
+                      currentLabel={formatInTimeZone(
+                        b.startAt,
+                        timeZone,
+                        "EEE, MMM d · h:mm a"
+                      )}
+                      hostTimeZone={timeZone}
+                    />
+                  )}
                   {b.status !== "cancelled" && b.startAt >= new Date() && (
-                    <CancelBookingButton id={b.id} />
+                    <CancelBookingButton
+                      id={b.id}
+                      guestName={b.guestName}
+                      eventTitle={b.title}
+                      paidLabel={
+                        b.amountPaidCents > 0
+                          ? formatMoney(b.amountPaidCents)
+                          : null
+                      }
+                    />
                   )}
                 </div>
               </li>

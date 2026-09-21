@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import type { Plan } from "@/db/schema";
+import { CURRENCY } from "@/lib/money";
 
 let _stripe: Stripe | null = null;
 
@@ -141,7 +142,7 @@ export async function createBookingCheckout(opts: {
     {
       quantity: 1,
       price_data: {
-        currency: "usd",
+        currency: CURRENCY,
         unit_amount: opts.amountCents,
         product_data: {
           name: opts.isDeposit
@@ -155,7 +156,7 @@ export async function createBookingCheckout(opts: {
     lineItems.push({
       quantity: 1,
       price_data: {
-        currency: "usd",
+        currency: CURRENCY,
         unit_amount: opts.tipCents,
         product_data: { name: "Tip" },
       },

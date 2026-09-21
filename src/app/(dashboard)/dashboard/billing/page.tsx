@@ -95,7 +95,7 @@ export default async function BillingPage({
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm text-muted-foreground">
                   <p>
-                    Event types:{" "}
+                    Events:{" "}
                     {Number.isFinite(p.maxEventTypes)
                       ? p.maxEventTypes
                       : "Unlimited"}

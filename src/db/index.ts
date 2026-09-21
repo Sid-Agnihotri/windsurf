@@ -7,7 +7,7 @@ import * as schema from "./schema";
 /**
  * Local default: SQLite file under ./data/
  * Neon/Postgres: set DATABASE_URL=postgres://... and see README for dialect switch notes.
- * For this MVP the runtime uses SQLite so local and remote deploys run without Neon.
+ * For this MVP the runtime uses SQLite so the cloud agent / laptop runs without Neon.
  */
 const dataDir = path.join(process.cwd(), "data");
 if (!fs.existsSync(dataDir)) {
