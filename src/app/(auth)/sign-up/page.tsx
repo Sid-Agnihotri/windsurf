@@ -61,7 +61,7 @@ export default function SignUpPage() {
             Join Windsurf
           </CardTitle>
           <CardDescription>
-            Start on Free — one event type, ten bookings a month.
+            Start on Free — three events, five bookings a month.
           </CardDescription>
         </CardHeader>
         <form onSubmit={onSubmit}>

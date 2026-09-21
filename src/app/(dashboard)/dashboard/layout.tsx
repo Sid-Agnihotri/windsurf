@@ -11,7 +11,7 @@ import { SignOutButton } from "@/components/dashboard/sign-out-button";
 
 const nav = [
   { href: "/dashboard", label: "Overview" },
-  { href: "/dashboard/events", label: "Event types" },
+  { href: "/dashboard/events", label: "Events" },
   { href: "/dashboard/availability", label: "Availability" },
   { href: "/dashboard/bookings", label: "Bookings" },
   { href: "/dashboard/billing", label: "Billing" },
@@ -63,7 +63,10 @@ export default async function DashboardLayout({
           </div>
         </div>
         <nav className="mx-auto flex max-w-6xl gap-1 overflow-x-auto px-4 pb-2">
-          {nav.map((item) => (
+          {(u.role === "admin"
+            ? [...nav, { href: "/dashboard/admin", label: "Admin" }]
+            : nav
+          ).map((item) => (
             <Link
               key={item.href}
               href={item.href}
