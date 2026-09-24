@@ -7,6 +7,7 @@ const TABS = [
   { href: "/dashboard/settings", label: "Profile" },
   { href: "/dashboard/settings/availability", label: "Availability" },
   { href: "/dashboard/settings/calendar", label: "Calendar" },
+  { href: "/dashboard/settings/payments", label: "Payments" },
 ];
 
 /** Route-based tabs for the Settings area; each tab is its own page. */

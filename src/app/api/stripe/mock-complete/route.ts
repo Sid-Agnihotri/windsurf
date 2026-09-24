@@ -65,7 +65,7 @@ export async function GET(req: NextRequest) {
         updatedAt: new Date(),
       })
       .where(eq(user.id, userId));
-    return NextResponse.redirect(`${appUrl()}/dashboard/billing?connect=return&mock=1`);
+    return NextResponse.redirect(`${appUrl()}/dashboard/settings/payments?connect=return&mock=1`);
   }
 
   if (type === "booking") {

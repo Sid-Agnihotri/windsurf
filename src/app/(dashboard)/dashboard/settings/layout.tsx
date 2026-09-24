@@ -8,7 +8,7 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
           Settings
         </h1>
         <p className="text-muted-foreground">
-          Your profile, when you&apos;re bookable, and your calendar.
+          Your profile, when you&apos;re bookable, your calendar and how guests pay.
         </p>
       </div>
       <SettingsTabs />
