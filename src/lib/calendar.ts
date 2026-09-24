@@ -26,7 +26,7 @@ const GRAPH = "https://graph.microsoft.com/v1.0/me";
 const TIMEOUT_MS = 8000;
 const MAX_PAGES = 5;
 
-type Connection = { provider: CalendarProvider; accountId: string; userId: string };
+export type Connection = { provider: CalendarProvider; accountId: string; userId: string };
 
 /** Which of the host's linked accounts to use, honouring their choice in Settings. */
 export async function findConnection(
@@ -46,8 +46,13 @@ export async function findConnection(
     (a) =>
       isCalendarProvider(a.providerId) && hasCalendarScope(a.providerId, a.scope)
   );
-  const wanted = forceProvider ?? (choice && choice !== "off" ? choice : null);
-  const pick = wanted ? usable.find((a) => a.providerId === wanted) : usable[0];
+  // An existing event must stay on its own calendar; a stale choice (say the chosen
+  // account was unlinked) falls back to whatever is still connected.
+  const pick = forceProvider
+    ? usable.find((a) => a.providerId === forceProvider)
+    : (choice && choice !== "off"
+        ? usable.find((a) => a.providerId === choice)
+        : undefined) ?? usable[0];
   if (!pick) return null;
   return {
     provider: pick.providerId as CalendarProvider,
@@ -57,10 +62,18 @@ export async function findConnection(
 }
 
 /** A current access token, refreshed by Better Auth when it has expired. */
-async function accessToken(conn: Connection) {
+export async function accessToken(conn: Connection) {
   const tokens = await auth.api.getAccessToken({
     body: { accountId: conn.accountId, userId: conn.userId },
   });
+  // With no refresh token (Google only issues one on consent), an expired token comes back
+  // as-is. It would only earn a 401, so report the connection as lost instead.
+  if (
+    tokens.accessTokenExpiresAt &&
+    new Date(tokens.accessTokenExpiresAt).getTime() <= Date.now()
+  ) {
+    throw new Error("Calendar access token expired and could not be refreshed");
+  }
   return tokens.accessToken;
 }
 

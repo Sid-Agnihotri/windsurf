@@ -1,12 +1,12 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { CalendarProvider } from "@/db/schema";
 import { setCalendarChoice, type CalendarChoice } from "@/actions/calendar";
-import { authClient } from "@/lib/auth-client";
 import { CALENDAR_LABEL, PROVIDER_LABEL } from "@/lib/social-providers";
+import { ConnectCalendarButton } from "@/components/dashboard/calendar-actions";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
@@ -26,7 +26,6 @@ export function CalendarControls({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [connecting, setConnecting] = useState<CalendarProvider | null>(null);
 
   const connected = providers.filter((p) => p.status === "connected");
   // What is in effect: an explicit pick if it's still connected, else the first connected one.
@@ -34,22 +33,6 @@ export function CalendarControls({
     choice === "off"
       ? null
       : (connected.find((p) => p.provider === choice) ?? connected[0])?.provider ?? null;
-
-  async function connect(provider: CalendarProvider) {
-    setConnecting(provider);
-    const { error } = await authClient.linkSocial({
-      provider,
-      callbackURL: "/dashboard/settings?calendar=connected",
-      errorCallbackURL: "/dashboard/settings?calendar=error",
-      // Forces the consent screen so Google hands back a fresh refresh token.
-      additionalParams: provider === "google" ? { prompt: "consent" } : undefined,
-    });
-    // On success the browser is already navigating to the provider.
-    if (error) {
-      setConnecting(null);
-      toast.error(error.message || `Could not connect ${PROVIDER_LABEL[provider]}`);
-    }
-  }
 
   function choose(next: CalendarChoice) {
     startTransition(async () => {
@@ -76,21 +59,18 @@ export function CalendarControls({
             {status === "connected" && active === provider && (
               <Badge className="bg-teal-100 text-teal-900">In use</Badge>
             )}
-            <Button
-              size="sm"
+            <ConnectCalendarButton
+              provider={provider}
+              returnTo="/dashboard/settings/calendar"
               variant={status === "connected" ? "outline" : "default"}
-              className={status === "connected" ? "" : "bg-teal-800 hover:bg-teal-900"}
-              disabled={connecting !== null}
-              onClick={() => connect(provider)}
-            >
-              {connecting === provider
-                ? "Redirecting…"
-                : status === "connected"
+              label={
+                status === "connected"
                   ? "Reconnect"
                   : status === "no_calendar_access"
                     ? "Allow calendar access"
-                    : "Connect"}
-            </Button>
+                    : "Connect"
+              }
+            />
           </li>
         ))}
       </ul>

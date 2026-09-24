@@ -12,7 +12,6 @@ import { SignOutButton } from "@/components/dashboard/sign-out-button";
 const nav = [
   { href: "/dashboard", label: "Overview" },
   { href: "/dashboard/events", label: "Events" },
-  { href: "/dashboard/availability", label: "Availability" },
   { href: "/dashboard/bookings", label: "Bookings" },
   { href: "/dashboard/billing", label: "Billing" },
   { href: "/dashboard/settings", label: "Settings" },
