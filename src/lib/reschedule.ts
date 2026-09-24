@@ -9,7 +9,8 @@ import {
   type HostSettings,
   type User,
 } from "@/db/schema";
-import { generateSlots } from "@/lib/slots";
+import { generateSlots, type BusyInterval } from "@/lib/slots";
+import { busyForDate } from "@/lib/calendar";
 import { loadAvailability, type Queryable } from "@/lib/availability-data";
 
 export type FoundBooking = { booking: Booking; evt: EventType; host: User };
@@ -27,6 +28,8 @@ export type MoveResult =
  */
 export function moveBooking(opts: {
   startAt: Date;
+  /** The host's calendar busy times around the new date, fetched beforehand (this can't await). */
+  externalBusy?: BusyInterval[];
   notFoundMessage: string;
   find: (q: Queryable) => FoundBooking | undefined;
   /** An error message if this booking can't be moved right now, else null. */
@@ -58,6 +61,7 @@ export function moveBooking(opts: {
         overrides,
         settings,
         existingBookings: existing,
+        externalBusy: opts.externalBusy,
       });
       if (!slots.some((s) => s.startISO === opts.startAt.toISOString())) {
         return { error: "That time is no longer available. Pick another." } as const;
@@ -77,8 +81,25 @@ export function moveBooking(opts: {
   );
 }
 
+/**
+ * The host's calendar busy times around `date`, for a booking being moved there.
+ * The booking's own calendar event is left out so it doesn't block its own new time.
+ */
+export function calendarBusyForMove(found: FoundBooking, date: string) {
+  return busyForDate({
+    hostId: found.host.id,
+    date,
+    timeZone: found.host.timezone,
+    excludeEventId: found.booking.calendarEventId,
+  });
+}
+
 /** Open times this booking could move to on `date` (YYYY-MM-DD in the host's timezone). */
-export function listMoveSlots(found: FoundBooking, date: string) {
+export function listMoveSlots(
+  found: FoundBooking,
+  date: string,
+  externalBusy?: BusyInterval[]
+) {
   const { booking: b, evt, host } = found;
   const { settings, rules, overrides, existing } = loadAvailability(
     db,
@@ -93,5 +114,6 @@ export function listMoveSlots(found: FoundBooking, date: string) {
     overrides,
     settings,
     existingBookings: existing,
+    externalBusy,
   });
 }

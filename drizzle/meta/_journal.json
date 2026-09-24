@@ -29,6 +29,13 @@
       "when": 1790018625597,
       "tag": "0003_guest_manage_link",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1790265420184,
+      "tag": "0004_calendar_sync",
+      "breakpoints": true
     }
   ]
 }

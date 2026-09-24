@@ -19,6 +19,7 @@ export function defaultHostSettings(hostId: string): HostSettings {
     bufferAfterMinutes: 0,
     minNoticeMinutes: 120,
     changeNoticeHours: 24,
+    calendarProvider: null,
   };
 }
 

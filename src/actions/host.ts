@@ -27,6 +27,11 @@ import {
 } from "@/lib/plans";
 import { generateSlots, monthBoundsUtc } from "@/lib/slots";
 import {
+  busyForDate,
+  removeBookingFromCalendar,
+  syncBookingToCalendar,
+} from "@/lib/calendar";
+import {
   createBookingCheckout,
   createConnectOnboardingLink,
   createSubscriptionCheckout,
@@ -38,7 +43,7 @@ import {
 } from "@/lib/email";
 import { balanceNote, formatMoney } from "@/lib/money";
 import { loadAvailability, type Queryable } from "@/lib/availability-data";
-import { listMoveSlots, moveBooking } from "@/lib/reschedule";
+import { calendarBusyForMove, listMoveSlots, moveBooking } from "@/lib/reschedule";
 import { manageUrl } from "@/lib/manage";
 import { formatInTimeZone } from "date-fns-tz";
 import { addMinutes } from "date-fns";
@@ -433,6 +438,7 @@ export async function cancelBooking(id: string) {
     .update(booking)
     .set({ status: "cancelled", updatedAt: new Date() })
     .where(eq(booking.id, id));
+  await removeBookingFromCalendar(id);
 
   await sendBookingCancelled({
     guestEmail: b.booking.guestEmail,
@@ -486,7 +492,9 @@ export async function getHostRescheduleSlots(bookingId: string, date: string) {
   if (message) return { error: message, slots: none };
 
   return {
-    slots: listMoveSlots(found, date).map((s) => ({ startISO: s.startISO })),
+    slots: listMoveSlots(found, date, await calendarBusyForMove(found, date)).map(
+      (s) => ({ startISO: s.startISO })
+    ),
     timeZone: u.timezone,
   };
 }
@@ -497,8 +505,18 @@ export async function rescheduleBookingAsHost(bookingId: string, startISO: strin
   const startAt = new Date(startISO);
   if (Number.isNaN(startAt.getTime())) return { error: "Invalid time." };
 
+  // Read the calendar first: the move itself is a synchronous transaction.
+  const current = findHostBooking(db, bookingId, u.id);
+  const externalBusy = current
+    ? await calendarBusyForMove(
+        current,
+        formatInTimeZone(startAt, u.timezone, "yyyy-MM-dd")
+      )
+    : undefined;
+
   const outcome = moveBooking({
     startAt,
+    externalBusy,
     notFoundMessage: "Booking not found.",
     find: (q) => findHostBooking(q, bookingId, u.id),
     blocked: ({ booking: b }) => hostMoveBlocked(b),
@@ -506,6 +524,7 @@ export async function rescheduleBookingAsHost(bookingId: string, startISO: strin
   if ("error" in outcome) return { error: outcome.error };
 
   const { booking: b, evt } = outcome.found;
+  await syncBookingToCalendar(b.id);
   const label = (d: Date) =>
     formatInTimeZone(d, u.timezone, "EEE, MMM d yyyy 'at' h:mm a zzz");
   await sendBookingRescheduled({
@@ -689,6 +708,11 @@ export async function createGuestBooking(input: {
   // requests for the same slot are serialized (better-sqlite3 is synchronous, so
   // the callback must not await). A Postgres port needs a serializable
   // transaction or an advisory lock on the host here.
+  const externalBusy = await busyForDate({
+    hostId: host.id,
+    date: dateInHostTz,
+    timeZone: host.timezone,
+  });
   const id = nanoid();
   const manageToken = nanoid(32);
   const reserved = db.transaction(
@@ -722,6 +746,7 @@ export async function createGuestBooking(input: {
         overrides,
         settings,
         existingBookings: existing,
+        externalBusy,
       });
       if (!slots.some((s) => s.startISO === startAt.toISOString())) {
         return {
@@ -760,6 +785,7 @@ export async function createGuestBooking(input: {
   if (reserved.error) return { error: reserved.error };
 
   if (!needsCheckout) {
+    await syncBookingToCalendar(id);
     const whenLabel = formatInTimeZone(
       startAt,
       host.timezone,
@@ -862,6 +888,11 @@ export async function getSlotsForPublic(opts: {
   }
 
   const { settings, rules, overrides, existing } = loadAvailability(db, host.id);
+  const externalBusy = await busyForDate({
+    hostId: host.id,
+    date: opts.date,
+    timeZone: host.timezone,
+  });
 
   const slots = generateSlots({
     date: opts.date,
@@ -871,6 +902,7 @@ export async function getSlotsForPublic(opts: {
     overrides,
     settings,
     existingBookings: existing,
+    externalBusy,
   });
 
   return {

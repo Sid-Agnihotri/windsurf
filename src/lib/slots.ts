@@ -13,6 +13,9 @@ import type {
 
 export type TimeWindow = { startTime: string; endTime: string };
 
+/** A period the host is busy outside Windsurf, e.g. from their Google or Outlook calendar. */
+export type BusyInterval = { start: Date; end: Date };
+
 export type Slot = {
   start: Date;
   end: Date;
@@ -46,6 +49,8 @@ export function generateSlots(opts: {
   overrides: AvailabilityOverride[];
   settings: HostSettings;
   existingBookings: Pick<Booking, "startAt" | "endAt" | "status" | "expiresAt">[];
+  /** Busy times from the host's connected calendar; blocked like bookings, buffers included. */
+  externalBusy?: BusyInterval[];
   now?: Date;
 }): Slot[] {
   // A non-positive or non-finite duration would never advance the cursor below.
@@ -96,6 +101,11 @@ export function generateSlots(opts: {
     return b.status === "confirmed" || b.status === "completed";
   });
 
+  const blockers: BusyInterval[] = [
+    ...activeBookings.map((b) => ({ start: b.startAt, end: b.endAt })),
+    ...(opts.externalBusy ?? []),
+  ];
+
   const slots: Slot[] = [];
 
   for (const w of windows) {
@@ -119,8 +129,8 @@ export function generateSlots(opts: {
       const blockedEnd = addMinutes(slotEnd, bufferAfter);
 
       const tooSoon = isBefore(cursor, minStart);
-      const conflict = activeBookings.some((b) =>
-        overlaps(blockedStart, blockedEnd, b.startAt, b.endAt)
+      const conflict = blockers.some((b) =>
+        overlaps(blockedStart, blockedEnd, b.start, b.end)
       );
 
       if (!tooSoon && !conflict) {
