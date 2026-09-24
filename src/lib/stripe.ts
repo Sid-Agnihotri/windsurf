@@ -112,8 +112,8 @@ export async function createConnectOnboardingLink(opts: {
 
   const link = await stripe.accountLinks.create({
     account: accountId,
-    refresh_url: `${appUrl()}/dashboard/billing?connect=refresh`,
-    return_url: `${appUrl()}/dashboard/billing?connect=return`,
+    refresh_url: `${appUrl()}/dashboard/settings/payments?connect=refresh`,
+    return_url: `${appUrl()}/dashboard/settings/payments?connect=return`,
     type: "account_onboarding",
   });
 

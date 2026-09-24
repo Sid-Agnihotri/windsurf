@@ -134,7 +134,7 @@ export async function SetupStatusCard({ host }: { host: User }) {
             "Some of your events need a card payment or take tips, but guests can't pay until you connect Stripe.",
           actions: (
             <Button asChild size="sm" variant="outline">
-              <Link href="/dashboard/billing">Set up in Billing</Link>
+              <Link href="/dashboard/settings/payments">Set up payments</Link>
             </Button>
           ),
         }
