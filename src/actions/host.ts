@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { and, count, eq, gte, lt, ne } from "drizzle-orm";
+import { and, count, eq, gte, inArray, lt, ne } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
@@ -26,6 +26,13 @@ import {
   stripePriceIdForPlan,
 } from "@/lib/plans";
 import { generateSlots, monthBoundsUtc } from "@/lib/slots";
+import { validTimeZone } from "@/lib/timezones";
+import {
+  MAX_TIME_OFF_DAYS,
+  expandDateRange,
+  validateWeeklySchedule,
+  validateWindows,
+} from "@/lib/availability-input";
 import {
   busyForDate,
   removeBookingFromCalendar,
@@ -45,7 +52,7 @@ import { balanceNote, formatMoney } from "@/lib/money";
 import { loadAvailability, type Queryable } from "@/lib/availability-data";
 import { calendarBusyForMove, listMoveSlots, moveBooking } from "@/lib/reschedule";
 import { manageUrl } from "@/lib/manage";
-import { formatInTimeZone } from "date-fns-tz";
+import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { addMinutes } from "date-fns";
 
 async function requireUser() {
@@ -90,9 +97,6 @@ function parseDollarsToCents(raw: FormDataEntryValue | null): number | null {
   if (!Number.isFinite(n) || n < 0) return null;
   return Math.round(n * 100);
 }
-
-const HM_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-const isHm = (s: string) => HM_RE.test(s);
 
 const PRICING_MODES: PricingMode[] = ["free", "paid", "deposit"];
 const LOCATION_TYPES: LocationType[] = ["in_person", "phone", "link"];
@@ -156,12 +160,13 @@ export async function updateProfile(formData: FormData) {
   const username = String(formData.get("username") || "")
     .trim()
     .toLowerCase();
-  const timezone = String(formData.get("timezone") || u.timezone);
+  const timezone = validTimeZone(String(formData.get("timezone") || u.timezone));
   const bio = String(formData.get("bio") || "").trim() || null;
   const brandPrimaryColor =
     String(formData.get("brandPrimaryColor") || "").trim() || null;
   const brandLogoUrl = String(formData.get("brandLogoUrl") || "").trim() || null;
 
+  if (!timezone) return { error: "Choose a valid timezone." };
   if (!name || !username || !/^[a-z0-9_]{3,30}$/.test(username)) {
     return { error: "Valid name and username (3–30 alphanumeric/_) required." };
   }
@@ -293,133 +298,134 @@ export async function deleteEventType(id: string) {
   redirect("/dashboard/events");
 }
 
-export async function saveAvailability(formData: FormData) {
+const SETTINGS_PATH = "/dashboard/settings/availability";
+
+/** Replaces the weekly hours. `input` is [{ day: 0-6 (Sun = 0), windows: [{ startTime, endTime }] }]. */
+export async function saveWeeklyHours(input: unknown) {
   const u = await requireUser();
-  const bufferBeforeMinutes = parseIntInRange(
-    formData.get("bufferBeforeMinutes"),
-    0,
-    1440,
-    0
-  );
-  const bufferAfterMinutes = parseIntInRange(
-    formData.get("bufferAfterMinutes"),
-    0,
-    1440,
-    0
-  );
-  const minNoticeMinutes = parseIntInRange(
-    formData.get("minNoticeMinutes"),
-    0,
-    60 * 24 * 365,
-    120
-  );
-  const changeNoticeHours = parseIntInRange(
-    formData.get("changeNoticeHours"),
-    0,
-    720,
-    24
-  );
-  if (
-    bufferBeforeMinutes === null ||
-    bufferAfterMinutes === null ||
-    minNoticeMinutes === null
-  ) {
-    return { error: "Buffers and minimum notice must be whole, non-negative minutes." };
-  }
-  if (changeNoticeHours === null) {
-    return { error: "Guest change cutoff must be a whole number of hours between 0 and 720." };
-  }
+  const result = validateWeeklySchedule(input);
+  if ("error" in result) return { error: result.error };
 
-  const dayRules: { day: number; startTime: string; endTime: string }[] = [];
-  for (let day = 0; day < 7; day++) {
-    if (formData.get(`day_${day}_enabled`) !== "on") continue;
-    const startTime = String(formData.get(`day_${day}_start`) || "09:00");
-    const endTime = String(formData.get(`day_${day}_end`) || "17:00");
-    if (!isHm(startTime) || !isHm(endTime) || startTime >= endTime) {
-      return { error: "Each enabled day needs a valid start time before its end time." };
+  // Synchronous transaction, so a failed insert can't leave the week half-replaced.
+  db.transaction((tx) => {
+    tx.delete(availabilityRule).where(eq(availabilityRule.hostId, u.id)).run();
+    for (const { day, windows } of result.days) {
+      for (const { startTime, endTime } of windows) {
+        tx.insert(availabilityRule)
+          .values({ id: nanoid(), hostId: u.id, dayOfWeek: day, startTime, endTime })
+          .run();
+      }
     }
-    dayRules.push({ day, startTime, endTime });
+  });
+
+  revalidatePath(SETTINGS_PATH);
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/** Buffers, minimum notice and how long guests may still change their booking. */
+export async function saveBookingRules(input: {
+  bufferBeforeMinutes: number;
+  bufferAfterMinutes: number;
+  minNoticeMinutes: number;
+  changeNoticeHours: number;
+}) {
+  const u = await requireUser();
+  const whole = (n: unknown, max: number) =>
+    typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= max;
+  const { bufferBeforeMinutes, bufferAfterMinutes, minNoticeMinutes, changeNoticeHours } =
+    input ?? ({} as typeof input);
+  if (!whole(bufferBeforeMinutes, 1440) || !whole(bufferAfterMinutes, 1440)) {
+    return { error: "Buffers must be between 0 minutes and 24 hours." };
+  }
+  if (!whole(minNoticeMinutes, 60 * 24 * 365)) {
+    return { error: "Minimum notice must be a whole number of minutes, up to a year." };
+  }
+  if (!whole(changeNoticeHours, 720)) {
+    return { error: "The guest change cutoff must be between 0 and 720 hours." };
   }
 
+  const values = { bufferBeforeMinutes, bufferAfterMinutes, minNoticeMinutes, changeNoticeHours };
   await db
     .insert(hostSettings)
-    .values({
-      hostId: u.id,
-      bufferBeforeMinutes,
-      bufferAfterMinutes,
-      minNoticeMinutes,
-      changeNoticeHours,
-    })
-    .onConflictDoUpdate({
-      target: hostSettings.hostId,
-      set: {
-        bufferBeforeMinutes,
-        bufferAfterMinutes,
-        minNoticeMinutes,
-        changeNoticeHours,
-      },
-    });
+    .values({ hostId: u.id, ...values })
+    .onConflictDoUpdate({ target: hostSettings.hostId, set: values });
 
-  await db.delete(availabilityRule).where(eq(availabilityRule.hostId, u.id));
-
-  for (const { day, startTime, endTime } of dayRules) {
-    await db.insert(availabilityRule).values({
-      id: nanoid(),
-      hostId: u.id,
-      dayOfWeek: day,
-      startTime,
-      endTime,
-    });
-  }
-
-  revalidatePath("/dashboard/availability");
+  revalidatePath(SETTINGS_PATH);
   return { ok: true };
 }
 
-export async function addAvailabilityOverride(formData: FormData) {
+/**
+ * Blocks a day or a run of days, or replaces the usual hours on them. Existing
+ * bookings are not touched; the result says how many fall inside the range.
+ */
+export async function addTimeOff(input: {
+  startDate: string;
+  endDate: string;
+  mode: "day_off" | "custom_hours";
+  startTime?: string;
+  endTime?: string;
+}) {
   const u = await requireUser();
-  const date = String(formData.get("date") || "");
-  const unavailable = formData.get("unavailable") === "on";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
-    return { error: "Invalid date" };
+  const today = formatInTimeZone(new Date(), u.timezone, "yyyy-MM-dd");
+  const range = expandDateRange(input?.startDate, input?.endDate, today);
+  if ("error" in range) return { error: range.error };
+
+  const unavailable = input.mode === "day_off";
+  let windowsJson: string | null = null;
+  if (!unavailable) {
+    const w = validateWindows([{ startTime: input.startTime, endTime: input.endTime }]);
+    if ("error" in w) return { error: w.error };
+    windowsJson = JSON.stringify(w.windows);
+  } else if (input.mode !== "day_off") {
+    return { error: "Choose all day or custom hours." };
   }
 
-  const startTime = String(formData.get("startTime") || "09:00");
-  const endTime = String(formData.get("endTime") || "17:00");
-  if (!unavailable && (!isHm(startTime) || !isHm(endTime) || startTime >= endTime)) {
-    return { error: "Custom hours need a valid start time before the end time." };
-  }
+  db.transaction((tx) => {
+    for (const date of range.dates) {
+      tx.insert(availabilityOverride)
+        .values({ id: nanoid(), hostId: u.id, date, unavailable, windowsJson })
+        .onConflictDoUpdate({
+          target: [availabilityOverride.hostId, availabilityOverride.date],
+          set: { unavailable, windowsJson },
+        })
+        .run();
+    }
+  });
 
-  const windowsJson = unavailable
-    ? null
-    : JSON.stringify([{ startTime, endTime }]);
+  const from = fromZonedTime(`${range.dates[0]} 00:00:00`, u.timezone);
+  const to = fromZonedTime(`${range.dates[range.dates.length - 1]} 23:59:59`, u.timezone);
+  const [{ value: existing }] = await db
+    .select({ value: count() })
+    .from(booking)
+    .where(
+      and(
+        eq(booking.hostId, u.id),
+        eq(booking.status, "confirmed"),
+        gte(booking.startAt, from),
+        lt(booking.startAt, to)
+      )
+    );
 
-  await db
-    .insert(availabilityOverride)
-    .values({
-      id: nanoid(),
-      hostId: u.id,
-      date,
-      unavailable,
-      windowsJson,
-    })
-    .onConflictDoUpdate({
-      target: [availabilityOverride.hostId, availabilityOverride.date],
-      set: { unavailable, windowsJson },
-    });
-
-  revalidatePath("/dashboard/availability");
-  return { ok: true };
+  revalidatePath(SETTINGS_PATH);
+  return { ok: true, days: range.dates.length, existingBookings: Number(existing) };
 }
 
-export async function deleteAvailabilityOverride(id: string) {
+/** Removes one or more time-off days (the ids of a grouped line in the list). */
+export async function removeTimeOff(ids: string[]) {
   const u = await requireUser();
+  if (!Array.isArray(ids) || ids.length === 0 || ids.length > MAX_TIME_OFF_DAYS) {
+    return { error: "Nothing to remove." };
+  }
   await db
     .delete(availabilityOverride)
     .where(
-      and(eq(availabilityOverride.id, id), eq(availabilityOverride.hostId, u.id))
+      and(
+        eq(availabilityOverride.hostId, u.id),
+        inArray(availabilityOverride.id, ids.map(String))
+      )
     );
-  revalidatePath("/dashboard/availability");
+  revalidatePath(SETTINGS_PATH);
   return { ok: true };
 }
 

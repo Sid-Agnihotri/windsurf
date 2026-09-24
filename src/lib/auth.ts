@@ -7,6 +7,7 @@ import * as schema from "@/db/schema";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { generateUsername } from "@/lib/username";
+import { validTimeZone } from "@/lib/timezones";
 import {
   CALENDAR_SCOPE,
   providerConfigured,
@@ -67,7 +68,6 @@ export const auth = betterAuth({
       timezone: {
         type: "string",
         required: false,
-        defaultValue: "America/New_York",
         input: true,
       },
       bio: {
@@ -121,22 +121,33 @@ export const auth = betterAuth({
     user: {
       create: {
         // Social sign-ups arrive without a username, but every host needs one for their public URL.
-        before: async (incoming) => {
-          const existing = (incoming as { username?: string | null }).username;
-          if (existing) return;
-          const username = await generateUsername(
-            incoming.email,
-            incoming.name,
-            async (candidate) =>
-              (
-                await db
-                  .select({ id: schema.user.id })
-                  .from(schema.user)
-                  .where(eq(schema.user.username, candidate))
-                  .limit(1)
-              ).length > 0
-          );
-          return { data: { ...incoming, username, displayUsername: username } };
+        before: async (incoming, context) => {
+          const fields = incoming as { username?: string | null; timezone?: string | null };
+          const changes: Record<string, string> = {};
+          if (!fields.username) {
+            const username = await generateUsername(
+              incoming.email,
+              incoming.name,
+              async (candidate) =>
+                (
+                  await db
+                    .select({ id: schema.user.id })
+                    .from(schema.user)
+                    .where(eq(schema.user.username, candidate))
+                    .limit(1)
+                ).length > 0
+            );
+            changes.username = username;
+            changes.displayUsername = username;
+          }
+          // Social sign-ups don't send a timezone, but the buttons leave the browser's in a
+          // cookie. There is deliberately no schema default, so "missing" is detectable here.
+          if (!fields.timezone) {
+            changes.timezone =
+              validTimeZone(context?.getCookie("browser_tz")) ?? "America/New_York";
+          }
+          if (Object.keys(changes).length === 0) return;
+          return { data: { ...incoming, ...changes } };
         },
         after: async (created) => {
           // Default Mon–Fri 9–17 availability + host settings

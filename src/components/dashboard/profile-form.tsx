@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import type { Plan } from "@/db/schema";
 import { updateProfile } from "@/actions/host";
 import { canUseCustomBranding } from "@/lib/plans";
+import type { TimezoneGroup } from "@/lib/timezones";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -16,22 +17,11 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 
-const TIMEZONES = [
-  "America/New_York",
-  "America/Chicago",
-  "America/Denver",
-  "America/Los_Angeles",
-  "America/Toronto",
-  "Europe/London",
-  "Europe/Paris",
-  "Asia/Tokyo",
-  "Australia/Sydney",
-  "UTC",
-];
-
 export function ProfileForm({
   user,
+  timezoneGroups,
 }: {
+  timezoneGroups: TimezoneGroup[];
   user: {
     name: string;
     username: string | null;
@@ -88,13 +78,15 @@ export function ProfileForm({
               className="flex h-9 w-full rounded-md border px-3 text-sm"
               defaultValue={user.timezone}
             >
-              {[user.timezone, ...TIMEZONES.filter((t) => t !== user.timezone)].map(
-                (tz) => (
-                  <option key={tz} value={tz}>
-                    {tz}
-                  </option>
-                )
-              )}
+              {timezoneGroups.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.options.map((tz) => (
+                    <option key={tz.id} value={tz.id}>
+                      {tz.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
             </select>
           </div>
           <div className="space-y-1">

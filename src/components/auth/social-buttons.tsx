@@ -28,6 +28,14 @@ function MicrosoftIcon() {
   );
 }
 
+/** Lets a brand-new account start in the visitor's timezone instead of a US default. */
+function rememberBrowserTimezone() {
+  const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  if (tz) {
+    document.cookie = `browser_tz=${encodeURIComponent(tz)}; path=/; max-age=600; samesite=lax`;
+  }
+}
+
 const ICONS = { google: GoogleIcon, microsoft: MicrosoftIcon };
 
 /**
@@ -42,6 +50,7 @@ export function SocialButtons({ providers }: { providers: CalendarProvider[] }) 
   async function start(provider: CalendarProvider) {
     setError(null);
     setPending(provider);
+    rememberBrowserTimezone();
     const { error: err } = await authClient.signIn.social({
       provider,
       callbackURL: "/dashboard",

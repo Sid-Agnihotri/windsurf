@@ -3,23 +3,16 @@ import { eq } from "drizzle-orm";
 import { getSession } from "@/lib/auth";
 import { db } from "@/db";
 import { user } from "@/db/schema";
-import { canUseCustomBranding } from "@/lib/plans";
+import { getTimezoneGroups } from "@/lib/timezones";
 import { ProfileForm } from "@/components/dashboard/profile-form";
-import { CalendarCard } from "@/components/dashboard/calendar-card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-
-const CALENDAR_RESULT: Record<string, string> = {
-  connected: "Calendar connected. Your busy times now block slots, and new bookings will be added to it.",
-  error:
-    "We couldn't connect that calendar. It may already be linked to a different Windsurf account, or you may have cancelled.",
-};
 
 export default async function SettingsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ welcome?: string; calendar?: string }>;
+  searchParams: Promise<{ welcome?: string }>;
 }) {
-  const { welcome, calendar } = await searchParams;
+  const { welcome } = await searchParams;
   const session = await getSession();
   if (!session?.user) redirect("/sign-in");
   const [u] = await db
@@ -30,16 +23,7 @@ export default async function SettingsPage({
   if (!u) redirect("/sign-in");
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-[family-name:var(--font-display)] text-3xl font-semibold text-teal-950">
-          Settings
-        </h1>
-        <p className="text-muted-foreground">
-          Profile, public username, timezone
-          {canUseCustomBranding(u.plan) ? ", and Expert branding" : ""}.
-        </p>
-      </div>
+    <div className="max-w-2xl space-y-6">
       {welcome && (
         <Alert>
           <AlertTitle>Welcome to Windsurf!</AlertTitle>
@@ -49,12 +33,8 @@ export default async function SettingsPage({
           </AlertDescription>
         </Alert>
       )}
-      {calendar && CALENDAR_RESULT[calendar] && (
-        <Alert variant={calendar === "error" ? "destructive" : "default"}>
-          <AlertDescription>{CALENDAR_RESULT[calendar]}</AlertDescription>
-        </Alert>
-      )}
       <ProfileForm
+        timezoneGroups={getTimezoneGroups(u.timezone)}
         user={{
           name: u.name,
           username: u.username,
@@ -65,7 +45,6 @@ export default async function SettingsPage({
           plan: u.plan,
         }}
       />
-      <CalendarCard userId={u.id} />
     </div>
   );
 }
