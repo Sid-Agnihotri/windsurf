@@ -3,6 +3,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { booking, eventType, user } from "@/db/schema";
 import { sendBookingConfirmation } from "@/lib/email";
+import { syncBookingToCalendar } from "@/lib/calendar";
 import { balanceNote } from "@/lib/money";
 import { manageUrl } from "@/lib/manage";
 import { formatInTimeZone } from "date-fns-tz";
@@ -91,6 +92,7 @@ export async function GET(req: NextRequest) {
         updatedAt: new Date(),
       })
       .where(eq(booking.id, bookingId));
+    await syncBookingToCalendar(bookingId);
 
     const [host] = await db.select().from(user).where(eq(user.id, b.hostId)).limit(1);
     const [evt] = await db

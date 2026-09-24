@@ -51,6 +51,8 @@ See `.env.example`:
 | `DATABASE_URL` | Neon/Postgres (production) |
 | `STRIPE_*` | Billing + Connect + webhooks (optional locally) |
 | `RESEND_*` | Transactional email (optional locally) |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | "Continue with Google" + Google Calendar (optional) |
+| `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` / `MICROSOFT_TENANT_ID` | "Continue with Microsoft" + Outlook Calendar (optional) |
 
 ## What works without Stripe / Resend
 
@@ -62,6 +64,21 @@ See `.env.example`:
 - **Paid / tip / deposit** create a pending booking then redirect through the same mock completer
 
 With real Stripe keys + price IDs + webhook secret, Checkout and `POST /api/stripe/webhook` run for real.
+
+## Google / Microsoft sign-in and calendar
+
+Set the credentials for a provider and its "Continue with ..." button appears on the sign-in and sign-up pages. `.env.example` lists the redirect URI (`<BETTER_AUTH_URL>/api/auth/callback/google` or `/microsoft`) and the permissions to enable in each console.
+
+- **Signing in creates the account** if there isn't one yet. A public username is generated from the email (editable in Settings) and the user lands on Settings to check it.
+- **The calendar is requested at the same time**, so one consent screen covers both. Users can untick it (Google) and connect later under **Settings → Calendar**, which also covers people who signed up with a password.
+- **Busy times block slots.** Events on the host's calendar (not marked free, not declined, not cancelled) hide overlapping times on the public page, when a guest confirms, and when rescheduling. Host buffers apply.
+- **Bookings are added to the calendar** once confirmed (after payment, for paid ones), moved when rescheduled and removed when cancelled. The event has no attendees, so nobody gets a surprise invite; Windsurf's own emails go to the guest.
+- **A calendar problem never blocks a booking.** Failures are logged and skipped; if the calendar can't be read, slots are offered as if it were empty.
+- With both providers connected, choose which one to use in Settings; "Pause calendar sync" turns it off without disconnecting.
+- A password account with the same email as a Google/Microsoft sign-in is not merged automatically (the password signup email is unverified). The user is told to sign in with their password and connect the provider from Settings.
+- Google's `calendar.events` scope is "sensitive": fine for testing with test users, but needs Google's app verification before opening sign-in to the public.
+
+Migration `0004_calendar_sync.sql` adds columns only.
 
 ## Demo accounts (dev only)
 
@@ -114,4 +131,4 @@ Refunds are manual: cancelling never refunds money. The host's email says how mu
 
 ## Out of scope (v1)
 
-Calendar sync, teams, app store, video integrations, Cloudflare Workers hosting.
+Teams, app store, video integrations, Cloudflare Workers hosting.

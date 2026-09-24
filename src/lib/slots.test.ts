@@ -14,6 +14,7 @@ const settings: HostSettings = {
   bufferAfterMinutes: 0,
   minNoticeMinutes: 0,
   changeNoticeHours: 24,
+  calendarProvider: null,
 };
 
 const rule = (startTime: string, endTime: string): AvailabilityRule => ({

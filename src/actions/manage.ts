@@ -5,7 +5,8 @@ import { and, eq, ne } from "drizzle-orm";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/db";
 import { booking } from "@/db/schema";
-import { listMoveSlots, moveBooking } from "@/lib/reschedule";
+import { calendarBusyForMove, listMoveSlots, moveBooking } from "@/lib/reschedule";
+import { removeBookingFromCalendar, syncBookingToCalendar } from "@/lib/calendar";
 import { loadHostSettings } from "@/lib/availability-data";
 import { findBookingByToken } from "@/lib/booking-by-token";
 import {
@@ -66,6 +67,7 @@ export async function cancelByGuest(token: string) {
     .where(and(eq(booking.id, b.id), ne(booking.status, "cancelled")))
     .returning({ id: booking.id });
   if (updated.length === 0) return { ok: true };
+  await removeBookingFromCalendar(b.id);
 
   // Stop an unpaid Stripe Checkout from being completed after cancelling.
   const stripe = getStripe();
@@ -128,7 +130,9 @@ export async function getRescheduleSlots(token: string, date: string) {
   }
 
   return {
-    slots: listMoveSlots(found, date).map((s) => ({ startISO: s.startISO })),
+    slots: listMoveSlots(found, date, await calendarBusyForMove(found, date)).map(
+      (s) => ({ startISO: s.startISO })
+    ),
     timeZone: host.timezone,
   };
 }
@@ -137,8 +141,18 @@ export async function rescheduleByGuest(token: string, startISO: string) {
   const startAt = new Date(startISO);
   if (Number.isNaN(startAt.getTime())) return { error: "Invalid time." };
 
+  // Find the booking first: the calendar has to be read before the (synchronous) move.
+  const current = findBookingByToken(db, token);
+  const externalBusy = current
+    ? await calendarBusyForMove(
+        current,
+        formatInTimeZone(startAt, current.host.timezone, "yyyy-MM-dd")
+      )
+    : undefined;
+
   const outcome = moveBooking({
     startAt,
+    externalBusy,
     notFoundMessage: INVALID,
     find: (q) => findBookingByToken(q, token),
     blocked: ({ booking: b, host }, settings) => {
@@ -155,6 +169,7 @@ export async function rescheduleByGuest(token: string, startISO: string) {
   if ("error" in outcome) return { error: outcome.error };
 
   const { booking: b, evt, host } = outcome.found;
+  await syncBookingToCalendar(b.id);
   await sendBookingRescheduled({
     guestEmail: b.guestEmail,
     guestName: b.guestName,

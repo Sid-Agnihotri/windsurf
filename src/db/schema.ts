@@ -15,6 +15,8 @@ export type PricingMode = "free" | "paid" | "deposit";
 export type LocationType = "in_person" | "phone" | "link";
 /** How the guest pays at booking time: none = free, card = online (Stripe), cash = in person */
 export type PaymentMethod = "none" | "card" | "cash";
+/** Sign-in providers that can also supply a calendar */
+export type CalendarProvider = "google" | "microsoft";
 export type BookingStatus =
   | "pending_payment"
   | "confirmed"
@@ -217,6 +219,11 @@ export const hostSettings = sqliteTable("host_settings", {
   minNoticeMinutes: integer("min_notice_minutes").notNull().default(120),
   /** Guests may cancel/reschedule themselves until this many hours before the start; 0 = until it starts */
   changeNoticeHours: integer("change_notice_hours").notNull().default(24),
+  /**
+   * Which connected calendar to check for conflicts and add bookings to.
+   * null = automatic (the first connected one), "off" = don't use a calendar.
+   */
+  calendarProvider: text("calendar_provider").$type<CalendarProvider | "off">(),
 });
 
 export const booking = sqliteTable(
@@ -251,6 +258,9 @@ export const booking = sqliteTable(
     stripePaymentIntentId: text("stripe_payment_intent_id"),
     /** Secret in the guest's manage link; null for bookings made before the feature existed */
     manageToken: text("manage_token"),
+    /** The host-calendar event mirroring this booking, once one has been created */
+    calendarEventId: text("calendar_event_id"),
+    calendarEventProvider: text("calendar_event_provider").$type<CalendarProvider>(),
     expiresAt: integer("expires_at", { mode: "timestamp_ms" }),
     createdAt: integer("created_at", { mode: "timestamp_ms" })
       .notNull()

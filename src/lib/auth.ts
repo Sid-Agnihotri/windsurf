@@ -6,6 +6,11 @@ import { db } from "@/db";
 import * as schema from "@/db/schema";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
+import { generateUsername } from "@/lib/username";
+import {
+  CALENDAR_SCOPE,
+  providerConfigured,
+} from "@/lib/social-providers";
 
 export const auth = betterAuth({
   baseURL: process.env.BETTER_AUTH_URL || process.env.NEXT_PUBLIC_APP_URL,
@@ -21,6 +26,37 @@ export const auth = betterAuth({
   }),
   emailAndPassword: {
     enabled: true,
+  },
+  // Google and Microsoft each appear once their credentials are set. They ask for
+  // calendar access up front so one consent screen covers sign-in and the calendar.
+  // Signing in with either creates the account if there isn't one yet.
+  socialProviders: {
+    ...(providerConfigured("google") && {
+      google: {
+        clientId: process.env.GOOGLE_CLIENT_ID!,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+        scope: [CALENDAR_SCOPE.google],
+        // Needed to get a refresh token, so calendar access outlives the first hour.
+        accessType: "offline" as const,
+      },
+    }),
+    ...(providerConfigured("microsoft") && {
+      microsoft: {
+        clientId: process.env.MICROSOFT_CLIENT_ID!,
+        clientSecret: process.env.MICROSOFT_CLIENT_SECRET!,
+        // "common" accepts both personal (Outlook.com) and work/school accounts.
+        tenantId: process.env.MICROSOFT_TENANT_ID || "common",
+        scope: [CALENDAR_SCOPE.microsoft],
+      },
+    }),
+  },
+  account: {
+    accountLinking: {
+      // A signed-in host may connect a Google/Microsoft account under a different email
+      // (say a work calendar). Signing in with one that matches an unverified password
+      // account is still refused, so nobody can claim an email they haven't proven.
+      allowDifferentEmails: true,
+    },
   },
   trustedOrigins: [
     process.env.BETTER_AUTH_URL || "http://127.0.0.1:43123",
@@ -84,6 +120,24 @@ export const auth = betterAuth({
   databaseHooks: {
     user: {
       create: {
+        // Social sign-ups arrive without a username, but every host needs one for their public URL.
+        before: async (incoming) => {
+          const existing = (incoming as { username?: string | null }).username;
+          if (existing) return;
+          const username = await generateUsername(
+            incoming.email,
+            incoming.name,
+            async (candidate) =>
+              (
+                await db
+                  .select({ id: schema.user.id })
+                  .from(schema.user)
+                  .where(eq(schema.user.username, candidate))
+                  .limit(1)
+              ).length > 0
+          );
+          return { data: { ...incoming, username, displayUsername: username } };
+        },
         after: async (created) => {
           // Default Mon–Fri 9–17 availability + host settings
           const hostId = created.id;

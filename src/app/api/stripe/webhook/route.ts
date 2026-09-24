@@ -4,6 +4,7 @@ import { db } from "@/db";
 import { booking, user } from "@/db/schema";
 import { getStripe, planFromPriceId, stripeConfigured } from "@/lib/stripe";
 import { sendBookingConfirmation } from "@/lib/email";
+import { syncBookingToCalendar } from "@/lib/calendar";
 import { balanceNote } from "@/lib/money";
 import { manageUrl } from "@/lib/manage";
 import { formatInTimeZone } from "date-fns-tz";
@@ -31,6 +32,7 @@ async function confirmBooking(bookingId: string, sessionId?: string, paymentInte
       updatedAt: new Date(),
     })
     .where(eq(booking.id, bookingId));
+  await syncBookingToCalendar(bookingId);
 
   const [host] = await db.select().from(user).where(eq(user.id, b.hostId)).limit(1);
   const [evt] = await db
